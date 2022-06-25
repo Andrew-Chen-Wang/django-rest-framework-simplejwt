@@ -117,6 +117,7 @@ class TokenRefreshSerializer(serializers.Serializer):
             refresh.set_jti()
             refresh.set_exp()
             refresh.set_iat()
+            refresh.add_to_outstanding()
 
             data["refresh"] = str(refresh)
 

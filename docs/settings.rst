@@ -18,6 +18,7 @@ Some of Simple JWT's behavior can be customized through settings variables in
       'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
       'ROTATE_REFRESH_TOKENS': False,
       'BLACKLIST_AFTER_ROTATION': False,
+      'BLACKLIST_PERSISTENCE_PROTECTION': True,
       'UPDATE_LAST_LOGIN': False,
 
       'ALGORITHM': 'HS256',
@@ -83,6 +84,15 @@ You need to add ``'rest_framework_simplejwt.token_blacklist',`` to your
 ``INSTALLED_APPS`` in the settings file to use this setting.
 
 Learn more about :doc:`/blacklist_app`.
+
+``BLACKLIST_PERSISTENCE_PROTECTION``
+--------------------------------------
+
+When set to ``True``, the blacklist app will consistently blacklist
+all other outstanding tokens in order to prevent a malicious user
+from having authorized access even after a blacklist. This setting
+is only enabled if ``ROTATE_REFRESH_TOKENS`` and ``BLACKLIST_AFTER_ROTATION``
+are enabled, as well.
 
 ``UPDATE_LAST_LOGIN``
 ----------------------------

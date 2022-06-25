@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -6,7 +6,8 @@ from django.db.models import BigAutoField
 from django.test import TestCase
 
 from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework_simplejwt.serializers import TokenVerifySerializer
+from rest_framework_simplejwt.serializers import TokenVerifySerializer, TokenObtainPairSerializer, \
+    TokenRefreshSerializer
 from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.token_blacklist.models import (
     BlacklistedToken,
@@ -194,6 +195,93 @@ class TestTokenBlacklistFlushExpiredTokens(TestCase):
             # Should raise exception
             RefreshToken(str(token))
             self.assertIn("blacklisted", e.exception.args[0])
+
+
+class TestTokenBlacklistOnNewObtain(TestCase):
+    def setUp(self):
+        self.username = "test_user"
+        self.password = "test_password"
+
+        self.user = User.objects.create_user(
+            username=self.username,
+            password=self.password,
+        )
+
+    def test_token_blacklisted_on_new_login(self):
+        s = TokenObtainPairSerializer(
+            context=MagicMock(),
+            data={
+                TokenObtainPairSerializer.username_field: self.username,
+                "password": self.password,
+            },
+        )
+        with override_api_settings(
+            ROTATE_REFRESH_TOKENS=True, BLACKLIST_AFTER_ROTATION=True
+        ):
+            self.assertTrue(s.is_valid())
+        old_refresh = s.validated_data["refresh"]
+
+        # Malicious user steals refresh token, refreshes access token,
+        # and gets new refresh token since it's with ROTATE_REFRESH_TOKENS
+        refreshed_s = TokenRefreshSerializer(
+            context=MagicMock(),
+            data={"refresh": old_refresh},
+        )
+        with override_api_settings(
+            ROTATE_REFRESH_TOKENS=True, BLACKLIST_AFTER_ROTATION=True
+        ):
+            self.assertTrue(refreshed_s.is_valid())
+        new_refresh = refreshed_s.validated_data["refresh"]
+        # The old refresh token should be blacklisted now
+        self.assertTrue(BlacklistedToken.objects.filter(token__token=old_refresh).exists())
+        self.assertEqual(BlacklistedToken.objects.count(), 1)
+
+        # Original user cannot refresh anymore
+        blacklisted_s = TokenRefreshSerializer(
+            context=MagicMock(),
+            data={"refresh": old_refresh},
+        )
+        with override_api_settings(
+            ROTATE_REFRESH_TOKENS=True, BLACKLIST_AFTER_ROTATION=True
+        ):
+            with self.assertRaises(TokenError):
+                blacklisted_s.is_valid()
+
+        # User uses token obtain pair view to get new set of tokens
+        s = TokenObtainPairSerializer(
+            context=MagicMock(),
+            data={
+                TokenObtainPairSerializer.username_field: self.username,
+                "password": self.password,
+            },
+        )
+        with override_api_settings(
+            ROTATE_REFRESH_TOKENS=True, BLACKLIST_AFTER_ROTATION=True
+        ):
+            self.assertTrue(s.is_valid())
+        self.assertFalse(BlacklistedToken.objects.filter(token__token=s.validated_data["refresh"]).exists())
+
+        # Check now that malicious user's new refresh is now in blacklist
+        self.assertTrue(BlacklistedToken.objects.filter(token__token=new_refresh).exists())
+        blacklisted_s = TokenRefreshSerializer(
+            context=MagicMock(),
+            data={"refresh": new_refresh},
+        )
+        with override_api_settings(
+            ROTATE_REFRESH_TOKENS=True, BLACKLIST_AFTER_ROTATION=True
+        ):
+            with self.assertRaises(TokenError):
+                blacklisted_s.is_valid()
+
+        # Assert user can refresh their own token
+        refreshed_s = TokenRefreshSerializer(
+            context=MagicMock(),
+            data={"refresh": s.validated_data["refresh"]},
+        )
+        with override_api_settings(
+            ROTATE_REFRESH_TOKENS=True, BLACKLIST_AFTER_ROTATION=True
+        ):
+            self.assertTrue(refreshed_s.is_valid())
 
 
 class TestPopulateJtiHexMigration(MigrationTestCase):

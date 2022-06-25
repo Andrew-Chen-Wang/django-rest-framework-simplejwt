@@ -126,7 +126,12 @@ class Token:
         See here:
         https://tools.ietf.org/html/rfc7519#section-4.1.7
         """
-        self.payload[api_settings.JTI_CLAIM] = uuid4().hex
+        try:
+            self.payload[f"old{api_settings.JTI_CLAIM}"] = self.payload[api_settings.JTI_CLAIM]
+        except KeyError:
+            pass
+        jti = self.payload[api_settings.JTI_CLAIM] = uuid4().hex
+        return jti
 
     def set_exp(self, claim="exp", from_time=None, lifetime=None):
         """
@@ -173,6 +178,11 @@ class Token:
         leeway = self.get_token_backend().get_leeway()
         if claim_time <= current_time - leeway:
             raise TokenError(format_lazy(_("Token '{}' claim has expired"), claim))
+
+    def add_to_outstanding(self):
+        """For blacklist app"""
+
+        pass
 
     @classmethod
     def for_user(cls, user):
@@ -229,6 +239,19 @@ class BlacklistMixin:
             if BlacklistedToken.objects.filter(token__jti=jti).exists():
                 raise TokenError(_("Token is blacklisted"))
 
+        def add_to_outstanding(self):
+            if (
+                api_settings.ROTATE_REFRESH_TOKENS
+                and api_settings.BLACKLIST_AFTER_ROTATION
+                and api_settings.BLACKLIST_PERSISTENCE_PROTECTION
+            ):
+                OutstandingToken.objects.get_or_create(
+                    jti=self.payload[api_settings.JTI_CLAIM],
+                    token=str(self),
+                    expires_at=datetime_from_epoch(self.payload["exp"]),
+                    **{f"user_{api_settings.USER_ID_FIELD}": self.payload[api_settings.USER_ID_CLAIM]}
+                )
+
         def blacklist(self):
             """
             Ensures this token is included in the outstanding token list and
@@ -236,6 +259,17 @@ class BlacklistMixin:
             """
             jti = self.payload[api_settings.JTI_CLAIM]
             exp = self.payload["exp"]
+            if (
+                api_settings.ROTATE_REFRESH_TOKENS
+                and api_settings.BLACKLIST_AFTER_ROTATION
+                and api_settings.BLACKLIST_PERSISTENCE_PROTECTION
+            ):
+                try:
+                    old_jti = self.payload[f"old{api_settings.JTI_CLAIM}"]
+                except KeyError:
+                    pass
+                else:
+                    BlacklistedToken.objects.bulk_create([BlacklistedToken(token_id=x) for x in OutstandingToken.objects.filter(jti=old_jti).values_list("id", flat=True)])
 
             # Ensure outstanding token exists with given jti
             token, _ = OutstandingToken.objects.get_or_create(
@@ -254,6 +288,28 @@ class BlacklistMixin:
             Adds this token to the outstanding token list.
             """
             token = super().for_user(user)
+
+            if (
+                api_settings.ROTATE_REFRESH_TOKENS
+                and api_settings.BLACKLIST_AFTER_ROTATION
+                and api_settings.BLACKLIST_PERSISTENCE_PROTECTION
+            ):
+                # Technically, we could use IGNORE_CONFLICTS with bulk create,
+                # but I'm not sure whether all databases support that. ~ACW '22
+                token_ids = set(
+                    OutstandingToken.objects.filter(
+                        user=user
+                    ).values_list("id", flat=True)
+                )
+                if token_ids:
+                    blacklisted_ids = set(BlacklistedToken.objects.filter(
+                        token_id__in=token_ids,
+                    ).values_list("token_id", flat=True))
+                    token_ids.difference_update(blacklisted_ids)
+                    if token_ids:
+                        BlacklistedToken.objects.bulk_create(
+                            [BlacklistedToken(token_id=token_id) for token_id in token_ids]
+                        )
 
             jti = token[api_settings.JTI_CLAIM]
             exp = token["exp"]

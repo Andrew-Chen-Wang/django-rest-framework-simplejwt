@@ -26,10 +26,7 @@ class OutstandingToken(models.Model):
         ordering = ("user",)
 
     def __str__(self):
-        return "Token for {} ({})".format(
-            self.user,
-            self.jti,
-        )
+        return f"Token for {self.user} ({self.jti})"
 
 
 class BlacklistedToken(models.Model):
