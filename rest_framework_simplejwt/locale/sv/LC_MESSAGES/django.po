@@ -14,8 +14,7 @@ msgstr ""
 
 #: authentication.py:78
 msgid "Authorization header must contain two space-delimited values"
-msgstr ""
-"Auktoriseringshuvudet måste innehålla två mellanslagsavgränsade värden"
+msgstr "Auktoriseringshuvudet måste innehålla två mellanslagsavgränsade värden"
 
 #: authentication.py:104
 msgid "Given token not valid for any token type"
@@ -63,8 +62,7 @@ msgid ""
 "The '{}' setting has been removed. Please refer to '{}' for available "
 "settings."
 msgstr ""
-"Inställningen '{}' har tagits bort. Se '{}' för tillgängliga "
-"inställningar"
+"Inställningen '{}' har tagits bort. Se '{}' för tillgängliga inställningar"
 
 #: token_blacklist/admin.py:68
 msgid "jti"
